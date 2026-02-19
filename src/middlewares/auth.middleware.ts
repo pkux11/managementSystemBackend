@@ -1,36 +1,78 @@
-import { Request, Response, NextFunction } from "express";
-import jwt from "jsonwebtoken";
+import {
+    Request,
+    Response,
+    NextFunction,
+} from "express";
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET!;
+import { prisma } from "../config/db";
 
-export interface AuthRequest extends Request {
+import {
+    verifyAccessToken,
+} from "../utils/jwt";
+
+export interface AuthRequest
+    extends Request {
+
     userId?: number;
 }
 
-export const authMiddleware = (
-    req: AuthRequest,
-    res: Response,
-    next: NextFunction
-) => {
-    try {
-        const header = req.headers.authorization;
+export const authMiddleware =
+    async (
+        req: AuthRequest,
+        res: Response,
+        next: NextFunction
+    ) => {
 
-        if (!header || !header.startsWith("Bearer ")) {
-            return res.status(401).json({ error: "Unauthorized" });
+        try {
+
+            const header =
+                req.headers.authorization;
+
+            if (!header)
+                return res
+                    .status(401)
+                    .json({
+                        error:
+                            "Missing token",
+                    });
+
+            const token =
+                header.split(" ")[1];
+
+            const decoded =
+                verifyAccessToken(token);
+
+            const user =
+                await prisma.user.findUnique({
+                    where: {
+                        id: decoded.userId,
+                    },
+                });
+
+            if (
+                !user ||
+                user?.tokenVersion !==
+                decoded.tokenVersion
+            )
+                return res
+                    .status(401)
+                    .json({
+                        error:
+                            "Token invalid",
+                    });
+
+            req.userId = user.id;
+
+            next();
+
+        } catch {
+
+            return res
+                .status(401)
+                .json({
+                    error:
+                        "Token expired",
+                });
+
         }
-
-        const token = header.split(" ")[1];
-
-        const decoded = jwt.verify(token, ACCESS_SECRET) as {
-            userId: number;
-        };
-
-        req.userId = decoded.userId;
-
-        next();
-    } catch (error) {
-        return res.status(401).json({
-            error: "Invalid or expired token",
-        });
-    }
-};
+    };
